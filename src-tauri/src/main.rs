@@ -1,4 +1,4 @@
-//! 技能中心 · Skill Hub —— Tauri 后端
+//! AgentHarbor · 智能体港 —— Tauri 后端
 //!
 //! 设计原则跟终端版一致：**这个 app 自己绝不改仓库里的内容，除了你明确编辑的那个技能**。
 //! 所有同步/备份/恢复动作全部转交给 `~/AgentSkillHub/bin/skill-sync.py` 执行，
@@ -949,9 +949,130 @@ fn default_export_dir() -> String {
     home().display().to_string()
 }
 
+// ---------------------------------------------------------------- 恢复（spread）
+//
+// enable-index 的反操作：那边把各家的技能正文收回中心库、每家只留一个门牌；
+// 这边把正文铺回各家、把门牌撤掉，并把 config 的 layout 翻成 copies。
+// 不翻 layout 的话没用 —— 下一次 sync（还有那个每 3 小时的定时任务）会按 hold
+// 字段把刚铺回去的正文当成"冗余副本"又清掉。
+
+#[tauri::command]
+fn spread_dry_run() -> Result<String, String> {
+    run_engine(&["spread".into(), "--dry-run".into()], None, None)
+}
+
+#[tauri::command]
+fn spread_copies() -> Result<String, String> {
+    run_engine(
+        &["spread".into()],
+        Some("AgentHarbor 界面：恢复到各家"),
+        None,
+    )
+}
+
+// ---------------------------------------------------------------- MCP
+//
+// 后端只做两件事：把引擎的 JSON 原样递给前端（让前端自己渲染），
+// 以及把前端的动作翻译成引擎子命令。MCP 的逻辑一律留在引擎里 ——
+// 界面绝不自己去读写各家的 MCP 配置文件。
+
+/// 只取 stdout，不掺 stderr —— `mcp status --json` 的输出是要被 JSON.parse 的。
+fn run_engine_stdout(args: &[String]) -> Result<String, String> {
+    let script = sync_py();
+    if !script.is_file() {
+        return Err(format!("找不到引擎脚本 {}", script.display()));
+    }
+    let out = Command::new(PY)
+        .arg(&script)
+        .args(args)
+        .current_dir(hub())
+        .env("LANG", "en_US.UTF-8")
+        .output()
+        .map_err(|e| format!("无法启动引擎: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            format!("引擎退出码 {}", out.status.code().unwrap_or(-1))
+        } else {
+            err
+        });
+    }
+    Ok(stdout)
+}
+
+/// MCP 全景：中心注册表 + 每家的现状。返回的是引擎的原始 JSON 字符串。
+#[tauri::command]
+fn mcp_status() -> Result<String, String> {
+    run_engine_stdout(&["mcp".into(), "status".into(), "--json".into()])
+}
+
+/// MCP 收敛计划（每家会做什么、会收走几个）。
+#[tauri::command]
+fn mcp_plan() -> Result<String, String> {
+    run_engine_stdout(&["mcp".into(), "plan".into(), "--json".into()])
+}
+
+/// 把各家配置里的 MCP server 定义收进中心注册表（并集）。
+#[tauri::command]
+fn mcp_import() -> Result<String, String> {
+    run_engine(&["mcp".into(), "import".into()], None, None)
+}
+
+/// 把指定几家收敛成"只剩一条 mount-mcp"。ids 为空表示全部。
+///
+/// 会改用户各家的 MCP 配置文件 —— 所以引擎那边强制要求 --yes，
+/// 而且改之前每一家都会备份到 ~/AgentSkillHub/mcp/.backups/。
+#[tauri::command]
+fn mcp_apply(ids: Option<Vec<String>>, dry: bool) -> Result<String, String> {
+    let mut a = vec!["mcp".to_string(), "apply".to_string()];
+    if dry {
+        a.push("--dry-run".into());
+    } else {
+        a.push("--yes".into());
+    }
+    if let Some(list) = ids.as_ref().filter(|v| !v.is_empty()) {
+        a.push("--ids".into());
+        a.extend(list.iter().cloned());
+    }
+    run_engine(&a, None, None)
+}
+
+/// mount-mcp 这个通用挂载器的自检（注册表读得到吗、命令都在吗）。
+#[tauri::command]
+fn mcp_selfcheck() -> Result<String, String> {
+    let script = hub().join("mcp").join("mount-mcp").join("server.py");
+    if !script.is_file() {
+        return Err(format!("找不到 {}", script.display()));
+    }
+    let out = Command::new("/usr/bin/python3")
+        .arg(&script)
+        .arg("--selfcheck")
+        .output()
+        .map_err(|e| format!("无法启动自检: {e}"))?;
+    let mut s = String::from_utf8_lossy(&out.stdout).to_string();
+    let err = String::from_utf8_lossy(&out.stderr);
+    if !err.trim().is_empty() {
+        s.push_str(&err);
+    }
+    Ok(s)
+}
+
+/// 打开 MCP 备份目录 / 注册表文件，方便用户自己看。
+#[tauri::command]
+fn mcp_paths(which: String) -> Result<String, String> {
+    let p = match which.as_str() {
+        "registry" => hub().join("mcp").join("servers.json"),
+        "backups" => hub().join("mcp").join(".backups"),
+        "server" => hub().join("mcp").join("mount-mcp").join("server.py"),
+        other => return Err(format!("不认识的 mcp 路径: {other}")),
+    };
+    open_path(&p, which == "backups")
+}
+
 // ---------------------------------------------------------------- 自检
 //
-// 从命令行跑 `skill-hub --selfcheck` 会把所有**只读**命令对着真仓库跑一遍并打印结果。
+// 从命令行跑 `agentharbor --selfcheck` 会把所有**只读**命令对着真仓库跑一遍并打印结果。
 // 用处：图形界面起不来（比如会话里没有 GUI）或者想快速确认"界面拿到的是不是对的数据"时，
 // 不用开窗口就能验证后端。
 
@@ -1021,6 +1142,55 @@ fn selfcheck() -> i32 {
         println!("  {:<14} {:<8} {:<9} 门牌:{:<6} 副本:{:<4} {}",
                  x.id, x.hold, x.mode, flag, x.extras, x.path);
     }
+
+    println!("\nMCP 统一状态");
+    match mcp_status() {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(v) => {
+                println!("  中心注册表 {}（{} 个）",
+                         v["registry_path"].as_str().unwrap_or("?"),
+                         v["registry_count"].as_u64().unwrap_or(0));
+                println!("  通用挂载器 {}", v["mount_mcp"].as_str().unwrap_or("?"));
+                if let Some(list) = v["vendors"].as_array() {
+                    for x in list {
+                        println!("  {:<12} {:<18} {:>2} 个  机制:{:<12} {}",
+                                 x["id"].as_str().unwrap_or("?"),
+                                 x["label"].as_str().unwrap_or(""),
+                                 x["count"].as_u64().unwrap_or(0),
+                                 x["mechanism"].as_str().unwrap_or(""),
+                                 if x["unified"].as_bool().unwrap_or(false) { "已收敛" } else { "未收敛" });
+                    }
+                }
+                for key in ["only_in_registry", "only_in_vendors"] {
+                    if let Some(a) = v[key].as_array().filter(|a| !a.is_empty()) {
+                        println!("  {}: {}", key,
+                                 a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+                    }
+                }
+            }
+            Err(e) => println!("  解析失败: {e}"),
+        },
+        Err(e) => println!("  失败: {e}"),
+    }
+    match mcp_selfcheck() {
+        Ok(t) => {
+            let bad = t.lines().any(|l| l.contains("❌"));
+            println!("  mount-mcp 自检: {} 行输出，{}", t.lines().count(),
+                     if bad { "有 ❌" } else { "无 ❌" });
+        }
+        Err(e) => println!("  mount-mcp 自检失败: {e}"),
+    }
+    println!("  MCP 路径: registry={}", hub().join("mcp").join("servers.json").display());
+
+    println!("\n恢复      spread 命令可用（把中心库技能铺回各家）");
+    match spread_dry_run() {
+        Ok(t) => {
+            let first = t.lines().next().unwrap_or("（无输出）").to_string();
+            println!("  dry-run  {first}");
+        }
+        Err(e) => println!("  dry-run 失败: {e}"),
+    }
+
     println!("\n自检结束：所有只读命令都正常返回。");
     0
 }
@@ -1058,7 +1228,15 @@ fn main() {
             open_file,
             pick_dir,
             default_export_dir,
+            spread_dry_run,
+            spread_copies,
+            mcp_status,
+            mcp_plan,
+            mcp_import,
+            mcp_apply,
+            mcp_selfcheck,
+            mcp_paths,
         ])
         .run(tauri::generate_context!())
-        .expect("技能中心启动失败");
+        .expect("AgentHarbor 启动失败");
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SkillDock · 技能坞</title>
+<title>AgentHarbor · 智能体港</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -11,12 +11,13 @@
 
   <header>
     <div class="title-row">
-      <h1>SkillDock</h1>
-      <span class="sub">技能坞</span>
+      <h1>AgentHarbor</h1>
+      <span class="sub">智能体港</span>
       <span class="hub" id="hubPath"></span>
       <span class="spacer"></span>
       <button id="btnRefresh">刷新</button>
       <button id="btnEnableIndex" class="primary">一键索引模式</button>
+      <button id="btnSpread">恢复到各家</button>
       <button id="btnSync">同步到各家</button>
       <button id="btnDoctor">体检</button>
       <button id="btnBackup">备份并归档…</button>
@@ -26,6 +27,7 @@
 
   <nav id="tabs">
     <button data-page="skills" class="on">技能</button>
+    <button data-page="mcp">MCP</button>
     <button data-page="timeline">流水</button>
     <button data-page="backups">备份</button>
     <button data-page="trash">回收站</button>
@@ -44,6 +46,57 @@
         <div class="right" id="skillDetail">
           <p class="empty">左边选一个技能。</p>
         </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-mcp">
+      <div class="tablewrap">
+        <div class="toolbar" style="margin:-12px -16px 12px;border-radius:0">
+          <span class="hint" id="mcpHint"></span>
+          <span class="spacer"></span>
+          <button id="btnMcpScan">扫描现状</button>
+          <button id="btnMcpImport">收编进注册表</button>
+          <button id="btnMcpPlan">看收敛计划</button>
+          <button id="btnMcpApply" class="primary">收敛成 mount-mcp</button>
+        </div>
+
+        <div class="mcp-sum" id="mcpSummary"></div>
+
+        <h2 class="panel" style="margin-top:18px">各家入口</h2>
+        <table>
+          <thead><tr>
+            <th class="nw" style="width:130px">厂商</th>
+            <th class="nw" style="width:130px">机制</th>
+            <th class="nw" style="width:80px">常驻 server</th>
+            <th class="nw" style="width:100px">状态</th>
+            <th>配置文件</th>
+          </tr></thead>
+          <tbody id="mcpVendorBody"></tbody>
+        </table>
+        <p class="empty" id="mcpVendorEmpty" hidden>没有检测到任何带 MCP 配置的厂商。</p>
+
+        <h2 class="panel" style="margin-top:22px">中心注册表</h2>
+        <p class="hint" id="mcpRegHint" style="margin:4px 0 8px"></p>
+        <table>
+          <thead><tr>
+            <th class="nw" style="width:200px">id</th>
+            <th class="nw" style="width:80px">类型</th>
+            <th>命令 / 地址</th>
+            <th style="width:280px">什么时候该挂它</th>
+          </tr></thead>
+          <tbody id="mcpRegBody"></tbody>
+        </table>
+
+        <p class="empty" style="margin-top:18px;line-height:1.8">
+          为什么要这样：<b>一个活着的 MCP server 会把它的完整工具表塞进每一次请求</b>。
+          chrome-devtools 29 个工具、blender 28 个 —— 放在配置里就是每回合都在付钱，用不用都付。<br />
+          收敛之后每家配置里只剩一条 <span class="tag">mount-mcp</span>，它平时<b>什么也不连</b>，
+          只暴露 <span class="mono">mcp_list / mcp_mount / mcp_unmount / mcp_call</span> 四个小工具；
+          要用哪个现挂，用完 <span class="mono">mcp_unmount</span> 卸掉，token 还回去。<br />
+          <b>改配置前每一家的原文件都会备份到</b>
+          <span class="mono" id="mcpBackupPath"></span>，出问题直接拿回来覆盖即可。<br />
+          ⚠️ 各客户端<b>要重启</b>才会读到新配置 —— MCP 配置基本都没有热重载。
+        </p>
       </div>
     </section>
 
@@ -111,6 +164,7 @@
           <span class="hint" id="agentHint"></span>
           <span class="spacer"></span>
           <button id="btnEnableIndex2">一键索引模式</button>
+          <button id="btnSpread2">恢复到各家</button>
           <button id="btnReindex">只重建门牌清单</button>
         </div>
         <table>
@@ -128,7 +182,9 @@
           技能正文只留中心仓库一份，用到才读 —— 这就是索引模式省上下文的地方。<br />
           <b>门牌外技能</b>应该是 0：点「一键索引模式」会把各家目录里多出来的技能<b>收编进中心仓库</b>、
           正文副本清进回收站，然后在每家只留一个随中心仓库动态生成的门牌。
-          （<span class="mono">dsh</span> 是 <span class="mono">hold=copies</span> 的例外，它本来就保留完整副本。）
+          （<span class="mono">dsh</span> 是 <span class="mono">hold=copies</span> 的例外，它本来就保留完整副本。）<br />
+          <b>恢复到各家</b>是反操作：把中心仓库的技能全部铺回每个目录、撤掉门牌、把模式翻成
+          <span class="mono">copies</span>。什么时候用它 —— 某个工具不认门牌、或者你就是要每个目录里都有实体技能的时候。
         </p>
       </div>
     </section>

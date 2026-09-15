@@ -169,6 +169,7 @@ async function refresh() {
     $("#hubPath").textContent = STATE.status.skills_dir;
     const page = $("nav button.on").dataset.page;
     if (page === "skills") await loadSkills();
+    if (page === "mcp") await loadMcp();
     if (page === "timeline") await loadTimeline();
     if (page === "backups") await loadBackups();
     if (page === "trash") await loadTrash();
@@ -447,6 +448,199 @@ async function loadAgents() {
     .join("");
 }
 
+// ---------------------------------------------------------------- 页 6 MCP
+let MCP = null;
+
+const MECH_LABEL = {
+  "mount-mcp": "一条 mount-mcp",
+  "plugin-link": "自带插件 + 软链",
+  own: "自带插件（不动）",
+};
+
+async function loadMcp() {
+  let raw;
+  try {
+    raw = await inv("mcp_status");
+  } catch (e) {
+    $("#mcpHint").textContent = String(e);
+    return;
+  }
+  let d;
+  try {
+    d = JSON.parse(raw);
+  } catch (e) {
+    $("#mcpHint").textContent = "引擎输出不是 JSON，前 200 字：" + String(raw).slice(0, 200);
+    return;
+  }
+  MCP = d;
+
+  const vs = d.vendors || [];
+  const live = vs.filter((v) => v.exists);
+  const unified = live.filter((v) => v.unified).length;
+  $("#mcpHint").textContent =
+    `中心注册表 ${d.registry_count} 个 server　·　` +
+    `${live.length} 家有 MCP 配置，其中 ${unified} 家已收敛`;
+
+  const reg = d.registry || {};
+  const remote = Object.values(reg).filter((x) => x && x.type === "remote").length;
+  const orphan = (d.only_in_registry || []).length;
+  const loose = (d.only_in_vendors || []).length;
+  $("#mcpSummary").innerHTML = [
+    `<span class="chip"><b>${Object.keys(reg).length}</b> 个注册表 server</span>`,
+    `<span class="chip">${remote} 个远程</span>`,
+    `<span class="chip ${loose ? "warn" : "ok"}">${loose} 个还没收编</span>`,
+    `<span class="chip ${orphan ? "warn" : ""}">${orphan} 个注册表独有</span>`,
+    `<span class="chip ${unified === live.length ? "ok" : "warn"}">${unified}/${live.length} 家已收敛</span>`,
+    `<span class="spacer"></span>`,
+    `<button id="btnMcpRegFile">打开注册表文件</button>`,
+    `<button id="btnMcpBackups">打开备份目录</button>`,
+    `<button id="btnMcpSelfcheck">挂载器自检</button>`,
+  ].join("");
+  $("#btnMcpRegFile").onclick = () => openPath("registry");
+  $("#btnMcpBackups").onclick = () => openPath("backups");
+  $("#btnMcpSelfcheck").onclick = () => run("mcp_selfcheck", {}, "mount-mcp 自检");
+
+  $("#mcpVendorBody").innerHTML = vs
+    .map((v) => {
+      if (!v.exists) {
+        return `<tr>
+          <td class="nw">${esc(v.label)}<div class="mono" style="color:var(--fg3)">${esc(v.id)}</div></td>
+          <td class="nw"><span class="tag">—</span></td>
+          <td class="nw">—</td>
+          <td class="nw"><span class="tag">没有配置</span></td>
+          <td class="mono ell" title="${esc(v.path)}">${esc(v.path)}</td>
+        </tr>`;
+      }
+      const state = v.unified
+        ? '<span class="tag add">已收敛</span>'
+        : v.mechanism === "own"
+        ? '<span class="tag">自带插件</span>'
+        : '<span class="tag del">未收敛</span>';
+      const cnt =
+        v.mechanism === "own"
+          ? `<span class="tag">${v.count}</span>`
+          : v.count <= 1
+          ? `<span class="tag add">${v.count}</span>`
+          : `<span class="tag del">${v.count}</span>`;
+      const btn = v.unified
+        ? ""
+        : `<button data-mcp-apply="${esc(v.id)}">只收敛这家</button>`;
+      return `<tr>
+      <td class="nw">${esc(v.label)}<div class="mono" style="color:var(--fg3)">${esc(v.id)}</div></td>
+      <td class="nw"><span class="tag">${esc(MECH_LABEL[v.mechanism] || v.mechanism)}</span></td>
+      <td class="nw">${cnt}</td>
+      <td class="nw">${state}</td>
+      <td class="mono ell" title="${esc(v.path)}">${esc(v.path)}
+        <div style="color:var(--fg3);font-size:11px">${esc(v.note || "")}</div>
+        ${btn}</td>
+    </tr>`;
+    })
+    .join("");
+  $("#mcpVendorEmpty").hidden = vs.length > 0;
+
+  $("#mcpVendorBody").querySelectorAll("[data-mcp-apply]").forEach((b) => {
+    b.onclick = () => askMcpApply([b.dataset.mcpApply]);
+  });
+
+  const rk = Object.keys(reg).sort();
+  $("#mcpRegHint").textContent = rk.length
+    ? `${d.registry_path}　·　${rk.length} 个`
+    : `注册表还是空的（${d.registry_path}）—— 先点「收编进注册表」。`;
+  $("#mcpRegBody").innerHTML = rk
+    .map((k) => {
+      const x = reg[k] || {};
+      const isRemote = x.type === "remote" || (!x.command && x.url);
+      const cmd = isRemote
+        ? x.url || ""
+        : [x.command].concat(x.args || []).map(esc).join(" ");
+      const tag = isRemote
+        ? '<span class="tag">远程</span>'
+        : '<span class="tag add">stdio</span>';
+      return `<tr>
+      <td class="nw mono">${esc(k)}</td>
+      <td class="nw">${tag}</td>
+      <td class="mono ell" title="${esc(cmd)}">${esc(cmd)}</td>
+      <td>${esc(x.when || "")}</td>
+    </tr>`;
+    })
+    .join("");
+  $("#mcpBackupPath").textContent = (d.registry_path || "").replace(
+    /\/servers\.json$/,
+    "/.backups/"
+  );
+}
+
+async function openPath(which) {
+  try {
+    await inv("mcp_paths", { which });
+  } catch (e) {
+    toast(String(e), "err");
+  }
+}
+
+/** 先干跑给用户看，再确认执行 —— 这一步会改各家的配置文件，必须让人先看清。 */
+async function askMcpApply(ids) {
+  let out;
+  try {
+    out = await inv("mcp_apply", { ids: ids || null, dry: true });
+  } catch (e) {
+    toast(String(e), "err");
+    return;
+  }
+  const scope = ids && ids.length ? `只处理 ${ids.join(", ")}` : "全部厂商";
+  openSheet({
+    title: "收敛成 mount-mcp —— 先看会改什么",
+    html:
+      `<p class="meta">${esc(scope)}。执行前每一家的原配置都会备份，出问题可以直接覆盖回去。</p>` +
+      `<pre>${esc(out)}</pre>` +
+      `<p class="meta" style="color:var(--warn)">⚠️ 改完各客户端要<b>重启</b>才会读到新配置。</p>`,
+    buttons: [
+      { label: "取消", onClick: closeSheet },
+      {
+        label: "确认执行",
+        kind: "primary",
+        onClick: async () => {
+          closeSheet();
+          await run("mcp_apply", { ids: ids || null, dry: false }, "收敛成 mount-mcp");
+          await loadMcp();
+        },
+      },
+    ],
+  });
+}
+
+/** 恢复到各家：把中心库技能铺回去、撤门牌 —— 和一键索引模式正好相反。 */
+async function spreadCopies() {
+  let preview;
+  try {
+    preview = await inv("spread_dry_run");
+  } catch (e) {
+    toast(String(e), "err");
+    return;
+  }
+  openSheet({
+    title: "恢复到各家 —— 先看会写什么",
+    html:
+      `<p class="meta">这是「一键索引模式」的反操作：把中心仓库里的技能<b>全部铺回</b>每个 agent 目录，` +
+      `并撤掉 skills-index 门牌。</p>` +
+      `<pre>${esc(preview)}</pre>` +
+      `<p class="meta" style="color:var(--warn)">⚠️ 铺回去之后，改中心仓库的技能<b>不会再自动分发</b>到各家，` +
+      `各家的常驻上下文也会从 ≈43 token 涨回几千。想回去点「一键索引模式」即可。</p>`,
+    buttons: [
+      { label: "取消", onClick: closeSheet },
+      {
+        label: "确认恢复",
+        kind: "primary",
+        onClick: async () => {
+          closeSheet();
+          await run("spread_copies", {}, "恢复到各家");
+          await refresh();
+        },
+      },
+    ],
+  });
+}
+
 // ---------------------------------------------------------------- 事件
 document.querySelectorAll("nav button").forEach((b) => {
   b.onclick = async () => {
@@ -456,6 +650,7 @@ document.querySelectorAll("nav button").forEach((b) => {
     $("#page-" + b.dataset.page).classList.add("on");
     const p = b.dataset.page;
     if (p === "skills") await loadSkills();
+    if (p === "mcp") await loadMcp();
     if (p === "timeline") await loadTimeline();
     if (p === "backups") await loadBackups();
     if (p === "trash") await loadTrash();
@@ -473,6 +668,28 @@ $("#btnBackup2").onclick = askBackup;
 $("#btnEnableIndex").onclick = enableIndex;
 $("#btnEnableIndex2").onclick = enableIndex;
 $("#btnReindex").onclick = () => run("reindex", {}, "重建 skills-index 门牌清单");
+$("#btnSpread").onclick = spreadCopies;
+$("#btnSpread2").onclick = spreadCopies;
+$("#btnMcpScan").onclick = async () => {
+  await run("mcp_import", { dry: true }, "扫描现状（干跑，不写盘）");
+};
+$("#btnMcpImport").onclick = async () => {
+  await run("mcp_import", {}, "收编进注册表");
+  await loadMcp();
+};
+$("#btnMcpPlan").onclick = async () => {
+  try {
+    const raw = await inv("mcp_plan");
+    openSheet({
+      title: "MCP 收敛计划",
+      html: `<pre>${esc(JSON.stringify(JSON.parse(raw), null, 2))}</pre>`,
+      buttons: [{ label: "关闭", kind: "primary", onClick: closeSheet }],
+    });
+  } catch (e) {
+    toast(String(e), "err");
+  }
+};
+$("#btnMcpApply").onclick = () => askMcpApply(null);
 
 function enableIndex() {
   confirmModal(
