@@ -452,9 +452,9 @@ async function loadAgents() {
 let MCP = null;
 
 const MECH_LABEL = {
-  "mount-mcp": "一条 mount-mcp",
-  "plugin-link": "自带插件 + 软链",
-  own: "自带插件（不动）",
+  "mount-mcp": "mount-mcp（MCP 条目）",
+  "plugin-link": "mcp-on-demand.js 插件",
+  own: "dsh-mcp-on-demand 插件",
 };
 
 async function loadMcp() {
@@ -505,9 +505,9 @@ async function loadMcp() {
       if (!v.exists) {
         return `<tr>
           <td class="nw">${esc(v.label)}<div class="mono" style="color:var(--fg3)">${esc(v.id)}</div></td>
-          <td class="nw"><span class="tag">—</span></td>
           <td class="nw">—</td>
           <td class="nw"><span class="tag">没有配置</span></td>
+          <td class="nw"><span class="tag">—</span></td>
           <td class="mono ell" title="${esc(v.path)}">${esc(v.path)}</td>
         </tr>`;
       }
@@ -516,20 +516,23 @@ async function loadMcp() {
         : v.mechanism === "own"
         ? '<span class="tag">自带插件</span>'
         : '<span class="tag del">未收敛</span>';
-      const cnt =
-        v.mechanism === "own"
-          ? `<span class="tag">${v.count}</span>`
-          : v.count <= 1
-          ? `<span class="tag add">${v.count}</span>`
-          : `<span class="tag del">${v.count}</span>`;
+      // 「常驻 server」越少越好：收敛后剩 1（就是 mount-mcp 自己）。
+      let cnt;
+      if (v.mechanism === "own") {
+        cnt = `<span class="tag">${v.count}</span><div style="color:var(--fg3);font-size:11px">由它的插件管</div>`;
+      } else {
+        cnt = v.count <= 1
+          ? `<span class="tag add">${v.count}</span><div style="color:var(--fg3);font-size:11px">就是 mount-mcp</div>`
+          : `<span class="tag del">${v.count}</span><div style="color:var(--fg3);font-size:11px">在烧 token</div>`;
+      }
       const btn = v.unified
         ? ""
         : `<button data-mcp-apply="${esc(v.id)}">只收敛这家</button>`;
       return `<tr>
       <td class="nw">${esc(v.label)}<div class="mono" style="color:var(--fg3)">${esc(v.id)}</div></td>
-      <td class="nw"><span class="tag">${esc(MECH_LABEL[v.mechanism] || v.mechanism)}</span></td>
       <td class="nw">${cnt}</td>
       <td class="nw">${state}</td>
+      <td class="nw"><span class="tag mod">${esc(MECH_LABEL[v.mechanism] || v.mechanism)}</span></td>
       <td class="mono ell" title="${esc(v.path)}">${esc(v.path)}
         <div style="color:var(--fg3);font-size:11px">${esc(v.note || "")}</div>
         ${btn}</td>

@@ -1,161 +1,188 @@
-# AgentHarbor · 智能体港
+<div align="center">
 
-> 多 agent 的**技能与 MCP 总管** —— 把「好几个 AI agent 各自维护一份技能库、各自配一遍
-> MCP server」这件事收成一套有主次、有流水、能回滚的体系。
-> Rust + 系统 WebView（Tauri 2），**不打包 Chromium**，安装包 2.4 MB。
+# ⚓ AgentHarbor
 
-## 它解决两个同构的问题
+**The harbor for your AI agents' skills and MCP servers.**
 
-如果你同时在用好几个 AI agent（Claude Code、opencode、ZCode、Codex、pi、DeepSeek Harness……），
-迟早会遇到这两件事——**它们的形状一模一样**：
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-| | 技能 | MCP server |
+*One place to keep every AI agent's skills in sync — and to stop MCP servers from
+burning your token budget on tools you're not using.*
+
+`Rust` · `Tauri 2` · `macOS 11+` · **no bundled Chromium** · installer ≈ 2.4 MB
+
+[![Release](https://img.shields.io/github/v/release/missolin/agentharbor?include_prereleases&sort=semver)](../../releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0b6e6e.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon-lightgrey)](#install)
+
+</div>
+
+---
+
+If you run several AI agents side by side (Claude Code, opencode, Codex, ZCode, pi,
+DeepSeek Harness…), you end up maintaining **two parallel copies of the same mess**:
+
+| | Skills | MCP servers |
 |---|---|---|
-| 现在的样子 | 同一个技能在五六个目录里各躺一份，改了一处别处不知情 | 同一个 server 在五六个配置里各写一遍，token 也各算一遍 |
-| 代价 | 有的 agent 把**全部技能正文**塞进上下文，几十万字 | 活着的 server 把**完整工具表**塞进每一次请求（chrome-devtools 29 个工具） |
-| 出事之后 | 手滑改坏，没历史没备份 | 配置写坏了，不知道原来是啥样 |
+| What it looks like | the same skill sits in five or six agent directories, each unaware of the others | the same server is configured in five or six config files |
+| What it costs | some agents dump **every skill's full body** into the context | a live server injects its **entire tool schema into every single request** (`chrome-devtools` ≈ 29 tools, `blender` ≈ 28) |
+| When it breaks | you fat-finger a skill and there's no history, no backup | you break a config and have no idea what it used to look like |
 
-AgentHarbor 的做法，两边完全对称：
+AgentHarbor fixes both with the **same symmetric idea**:
 
-1. **定义只存一份** —— 技能正文放一个中心仓库；MCP server 定义放一张中心注册表；
-2. **每家只留一个入口** —— 技能：每家一个 `skills-index` 门牌（≈43 token）；
-   MCP：每家一条 `mount-mcp`（平时**什么也不连**，要用哪个现挂）；
-3. **谁改了什么都留痕** —— 每次动作写结构化流水 + 自动 git commit；
-4. **旧版本不会消失** —— 覆盖前把旧的移进回收站 / 备份目录，随时捞回来。
+1. **One authoritative copy** — skill bodies live in a central repo; MCP server
+   definitions live in one central registry.
+2. **One entry point per agent** — skills: a single `skills-index` door file
+   (≈43 tokens resident); MCP: a single `mount-mcp` entry that connects to **nothing**
+   until you ask for it.
+3. **Everything is logged** — structured journal + automatic git commit on every action.
+4. **Nothing is ever lost** — old versions go to a trash dir / backup dir before being
+   overwritten, always restorable.
 
-## 界面
+## Pages
 
-| 页 | 干什么 |
+| Page | What it does |
 |---|---|
-| **技能** | 中心仓库的全部技能（体积 / 字数 / 描述 / 哪些 agent 还留着副本）；直接编辑 SKILL.md，存盘自动同步并署名；新建技能 |
-| **MCP** | 中心注册表 + 每家的 MCP 现状；扫描 / 收编 / 看收敛计划 / 收敛成 `mount-mcp`；挂载器自检 |
-| **流水** | 谁在什么时候改了什么 —— 引擎的结构化日志 + git 提交历史合成一条时间线 |
-| **备份** | 打整包快照（`.zip`）、整体回退、只回退某一个技能、删包；旧的 `.tar.gz` 也认 |
-| **回收站** | 所有被清掉的旧版本，一键捞回，或在 Finder 里查看 |
-| **各家配置** | 每个接入方指向哪个目录、什么模式、门牌挂没挂、门牌外还剩几个技能 |
+| **Skills** | every skill in the central repo (size / chars / description / which agents still hold copies); edit `SKILL.md` in place — saving syncs and attributes the change; create new skills |
+| **MCP** | central registry + per-vendor status; scan / import / show plan / collapse to `mount-mcp`; mount-server self-check |
+| **Journal** | who changed what, when — the engine's structured log merged with git history into one timeline |
+| **Backups** | full `.zip` snapshots, restore everything or just one skill, delete; old `.tar.gz` backups still work |
+| **Trash** | every replaced version, one click to bring back, or reveal in Finder |
+| **Agents** | where each integration points, which mode, whether its door file is mounted, how many stray copies are left |
 
-顶栏动作：
+Header actions:
 
-- **一键索引模式** —— 把各家目录里多出来的技能收编进中心仓库、正文副本清进回收站，
-  然后在每家只留一个随中心仓库**动态生成**的 `skills-index` 门牌；
-- **恢复到各家** —— 上一条的**反操作**：把中心仓库的技能全部铺回每个目录、撤掉门牌、
-  把模式翻成 `copies`。当某个工具不认门牌、或者你就是要每个目录里都有实体技能时用；
-- **同步到各家** / **体检** / **备份并归档…**（打 `.zip` 快照并让你选一个目录再存一份）。
+- **Enable index mode** — adopt every stray skill into the central repo, clear the
+  bodies out of agent dirs, leave each one with a single `skills-index` door file that is
+  **regenerated dynamically** from the repo;
+- **Restore to agents** — the *inverse*: spread every skill back into every agent dir,
+  remove the door files, flip the mode to `copies`. Use it when a tool doesn't understand
+  door files, or you simply want real skill directories everywhere;
+- **Sync** / **Doctor** / **Backup & archive…** (`.zip` snapshot + pick an export folder).
 
-## MCP 那边具体怎么省
+## How the MCP side actually saves tokens
 
-一个活着的 MCP server 会把自己的完整工具表塞进**每一次**请求，用不用都付。
-`chrome-devtools` ≈ 29 个工具、`blender` ≈ 28 个，一起挂着就是十几 K token 的固定开销。
+A live MCP server contributes its full tool schema to **every** request, used or not.
+Collapsing to one `mount-mcp` entry fixes that — the entry itself connects to nothing
+and exposes only four small tools:
 
-收敛之后，每家配置里只剩一条 `mount-mcp`。它平时**一个子 server 都不连**，只暴露四个小工具：
-
-| 工具 | 作用 |
+| Tool | What it does |
 |---|---|
-| `mcp_list` | 列出注册表里有哪些 server、当前哪些已挂载；带 `server` 参数则返回那个 server 的完整工具表 |
-| `mcp_mount` | 挂上一个 server。挂上后它的工具以 `mcp__<server>__<tool>` 出现（并发 `notifications/tools/list_changed`） |
-| `mcp_unmount` | 卸载：杀进程、工具从工具表消失、token 还回去 |
-| `mcp_call` | 直接调（没挂会自动挂）—— **万能兜底**，客户端不支持动态工具表时照样能干活 |
+| `mcp_list` | list configured servers and what's mounted; pass `server` to get that server's full tool schemas |
+| `mcp_mount` | mount a server. Its tools then appear as `mcp__<server>__<tool>` (plus a `notifications/tools/list_changed`) |
+| `mcp_unmount` | unmount: kill the child, tools vanish, tokens come back |
+| `mcp_call` | call directly (auto-mounts) — the **universal fallback** for clients that don't support dynamic tool lists |
 
-各家机制不一样，这是它们各自的插件体系决定的，不是我们偷懒：
+Each vendor's mechanism differs, because their plugin systems differ:
 
-| 厂商 | 收敛后是什么 |
+| Vendor | After collapsing |
 |---|---|
-| WorkBuddy / Claude Code / pi / Codex | 配置里只剩一条 `mount-mcp`，指向 `mcp/mount-mcp/server.py` |
-| opencode | 自带 `mcp-on-demand.js` 插件，把它原生的 `mcp` 段清空，插件的配置**软链**到中心注册表 |
-| DeepSeek Harness | 自带 cordis 插件 `dsh-mcp-on-demand`，不动它 |
+| WorkBuddy / Claude Code / pi / Codex | config holds exactly one `mount-mcp` entry |
+| opencode | native `mcp` section cleared; `mcp-servers.json` **symlinked** to the central registry, its own `mcp-on-demand.js` plugin keeps doing the mounting (in-process — cheaper than going through MCP at all) |
+| DeepSeek Harness | has its own cordis plugin, left untouched |
 
-**改配置前每一家的原文件都会备份**到 `~/AgentSkillHub/mcp/.backups/`。
+> That's why opencode shows **0 resident servers** — not "not configured", but
+> "doesn't need this anymore".
 
-## 一条铁律
+**Every vendor's original config is backed up** to `~/AgentSkillHub/mcp/.backups/`
+before anything is written.
 
-**这个 app 自己不改仓库内容**（除了你在编辑器里明确保存的那一个技能）。
-同步 / 备份 / 恢复 / MCP 收编全部转交给外部引擎 `skill-sync.py` 执行，所以：
+## The one iron rule
 
-- 图形界面和命令行走的是**同一套安全网**（覆盖先备份、旧版进回收站、可疑瘦身会被拦下）；
-- 界面本身崩了也**不会把东西搞坏**；
-- 这套东西不是 GUI 独占的 —— 全套能力在命令行里一样有。
+**This app never writes repository content itself** (other than the one skill you
+explicitly save in the editor). Every sync / backup / restore / MCP operation is
+handed to the external engine, so:
 
-## 前置依赖（重要）
+- the GUI and the CLI share the **same safety net** (back up before overwrite,
+  trash instead of delete, suspicious shrinkage is blocked);
+- if the UI crashes, your data is fine;
+- none of this is GUI-only — everything is available from the command line.
 
-**这个仓库只是图形界面。**它靠 shell 调用外部引擎来完成所有实际动作：
+## Prerequisites (important)
+
+**This repo is only the GUI.** All real work is done by an external engine:
 
 ```
-~/AgentSkillHub/bin/skill-sync.py             # 引擎（另一个项目）
-~/AgentSkillHub/skills/                        # 技能中心仓库（技能正文都在这儿）
-~/AgentSkillHub/mcp/mount-mcp/server.py        # 通用 MCP 按需挂载器（零依赖 Python）
+~/AgentSkillHub/bin/skill-sync.py             # sync engine (separate project)
+~/AgentSkillHub/skills/                        # central skill repo
+~/AgentSkillHub/mcp/mount-mcp/server.py        # universal on-demand MCP mount server
 ```
 
-没有这些，界面能打开、能看，但一点按钮就会报「找不到引擎脚本」。
+Without them the window opens and looks fine, but every button reports
+"engine script not found". Bring `~/AgentSkillHub` along when moving machines.
 
-## 安装
+## Install
 
-从 [Releases](../../releases) 下载 `AgentHarbor-<版本>.dmg`，打开后把 `AgentHarbor.app`
-拖进「应用程序」。
+Download `AgentHarbor-<version>.dmg` from [Releases](../../releases) and drag
+`AgentHarbor.app` into **Applications**.
 
-这个 app 是**本地 ad-hoc 签名**的，没有 Apple 开发者签名，所以第一次打开要
-**右键点图标 → 打开** 放行一次（之后正常）。要是还不行，去掉下载隔离标记：
+This app is **ad-hoc signed** (no Apple Developer certificate), so the first launch
+needs **right-click → Open** to approve once. If it still complains:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/AgentHarbor.app
 ```
 
-## 从源码构建
+## Build from source
 
-需要：Rust 1.77+、Node 18+（只为拿 Tauri 官方预编译 CLI）。
+Requires Rust 1.77+ and Node 18+ (only to fetch the prebuilt Tauri CLI).
 
 ```bash
-npm install                     # 只为拿 tauri CLI
-npx tauri dev                   # 开发模式（前端热重载）
+npm install                     # just to get the tauri CLI
+npx tauri dev                   # dev mode (frontend hot reload)
 
-# 出成品
+# production
 cd src-tauri && cargo build --release -j 8
-cd .. && npx tauri build        # 打包成 AgentHarbor.app
-./tools/install_app.sh          # 装到 /Applications，并重新 ad-hoc 签名
-./tools/make_dmg.sh             # 打可分发的 DMG（默认输出到桌面）
+cd .. && npx tauri build        # bundles AgentHarbor.app
+./tools/install_app.sh          # install to /Applications + re-sign + retire old versions
+./tools/make_dmg.sh             # distributable DMG (defaults to ~/Desktop)
 ```
 
-`agentharbor --selfcheck` 是个不开窗口的自检：把后端所有**只读**命令对着真实仓库跑一遍并打印，
-包括技能、流水、备份、回收站、各家配置，以及 MCP 注册表和 `mount-mcp` 自检。
-界面起不来或者怀疑"界面拿到的数据不对"时，先跑它。
+`agentharbor --selfcheck` runs every read-only backend command against the real repo
+and prints the result — skills, journal, backups, trash, per-agent config, the MCP
+registry and a `mount-mcp` self-check. Use it when the window won't open or you suspect
+the UI is showing stale data.
 
-## 架构
+## Architecture
 
 ```
-ui/                     纯静态前端（HTML + 原生 JS + CSS，没有打包器）
+ui/                     pure static frontend (HTML + vanilla JS + CSS, no bundler)
   index.html  app.js  style.css
-src-tauri/src/main.rs   Rust 后端：只读数据的整理 + 一个命令一个动作
-                        —— 写操作全部 shell out 给 skill-sync.py
+src-tauri/src/main.rs   Rust backend: read-only data shaping + one command per action
+                        —— every write is a shell-out to skill-sync.py
 src-tauri/tauri.conf.json
-tools/install_app.sh    装到 /Applications + 重签名 + 刷新 LaunchServices + 撤下改名前旧版本
-tools/make_dmg.sh       打 DMG（app + 「应用程序」软链 + 使用说明）
-tools/make_icon.py      用有符号距离场画图标（纯标准库，不调 AI，可复现）
+tools/install_app.sh    install to /Applications + re-sign + refresh LaunchServices
+tools/make_dmg.sh       DMG (app + Applications symlink + readme)
+tools/make_icon.py      icon drawn with a signed distance field (pure stdlib, reproducible)
 ```
 
-后端对外只有两类命令：
+The backend exposes two kinds of commands:
 
-- **只读**：`status` / `skills` / `skill_body` / `timeline` / `backups` / `trash` / `dictionary` /
-  `mcp_status` / `mcp_plan` / `mcp_selfcheck` —— 直接读文件系统、日志和 git 历史；
-- **写**：`run_sync` / `enable_index` / `reindex` / `spread_copies` / `make_backup` /
+- **Read-only**: `status` / `skills` / `skill_body` / `timeline` / `backups` / `trash` /
+  `dictionary` / `mcp_status` / `mcp_plan` / `mcp_selfcheck`
+- **Writing**: `run_sync` / `enable_index` / `reindex` / `spread_copies` / `make_backup` /
   `restore_backup` / `save_skill` / `new_skill` / `restore_trash` / `mcp_import` / `mcp_apply`
-  —— 全部转交 `skill-sync.py`。
+  — all delegated to `skill-sync.py`.
 
-## 资源账（首次编译，M4 Max）
+## Resource budget (first build, M4 Max)
 
-- `target/` 约 1.5–2.5 GB；crate 缓存命中时增量编译 20 秒左右
-- 用 `-j 8` 而不是默认并行度：16 个 rustc 同时跑峰值会到 5–6 GB，
-  48 GB 机器上会把空闲内存压到 1 GB 以下触发换页；`-j 8` 峰值约 2–3 GB
-- 想清干净：`rm -rf src-tauri/target`
+- `target/` ≈ 1.5–2.5 GB; incremental rebuild ≈ 20 s with a warm crate cache
+- `-j 8` on purpose, not the default parallelism: 16 concurrent `rustc` peak at 5–6 GB,
+  which on a 48 GB machine pushes free memory under 1 GB and starts swapping;
+  `-j 8` peaks around 2–3 GB
+- to clean: `rm -rf src-tauri/target`
 
-## 图标
+## The icon
 
-图标是**代码画出来的**，不是 AI 生成的，所以颜色精确、随时可复现：
+The icon is **drawn in code** with a signed distance field — not AI-generated — so the
+colors are exact and it's reproducible any time:
 
 ```bash
-python3 tools/make_icon.py --icns   # 出 source-1024.png + icon.icns + 各尺寸 png
+python3 tools/make_icon.py --icns   # source-1024.png + icon.icns + every png size
 ```
 
-改配色、改构图只要动脚本顶部几个常量重新跑一遍。
+Tweak the constants at the top of the script and re-run.
 
-## 许可
+## License
 
-MIT，见 [LICENSE](LICENSE)。
+MIT — see [LICENSE](LICENSE).

@@ -66,14 +66,21 @@
         <table>
           <thead><tr>
             <th class="nw" style="width:130px">厂商</th>
-            <th class="nw" style="width:130px">机制</th>
-            <th class="nw" style="width:80px">常驻 server</th>
+            <th class="nw" style="width:96px">常驻 server</th>
             <th class="nw" style="width:100px">状态</th>
+            <th class="nw" style="width:190px">它用的入口</th>
             <th>配置文件</th>
           </tr></thead>
           <tbody id="mcpVendorBody"></tbody>
         </table>
         <p class="empty" id="mcpVendorEmpty" hidden>没有检测到任何带 MCP 配置的厂商。</p>
+
+        <p class="empty" style="margin-top:14px;line-height:1.8">
+          <b>「常驻 server」是越少越好的那个数字</b> —— 它是"每次请求都挂在工具表里的 MCP server 数"。<br />
+          · <b>1</b>（绿色）= 只剩 <span class="tag">mount-mcp</span> 自己，它平时一个子 server 都不连；<br />
+          · <b>0</b>（绿色）= 该厂商还没有任何 MCP 配置，不是问题；<br />
+          · 数字偏大（红）= 还有 server 常驻在烧 token，点「收敛成 mount-mcp」收掉。
+        </p>
 
         <h2 class="panel" style="margin-top:22px">中心注册表</h2>
         <p class="hint" id="mcpRegHint" style="margin:4px 0 8px"></p>
