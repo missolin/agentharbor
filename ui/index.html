@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SkillDock · 技能坞</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="title-row">
+      <h1>SkillDock</h1>
+      <span class="sub">技能坞</span>
+      <span class="hub" id="hubPath"></span>
+      <span class="spacer"></span>
+      <button id="btnRefresh">刷新</button>
+      <button id="btnEnableIndex" class="primary">一键索引模式</button>
+      <button id="btnSync">同步到各家</button>
+      <button id="btnDoctor">体检</button>
+      <button id="btnBackup">备份并归档…</button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <nav id="tabs">
+    <button data-page="skills" class="on">技能</button>
+    <button data-page="timeline">流水</button>
+    <button data-page="backups">备份</button>
+    <button data-page="trash">回收站</button>
+    <button data-page="agents">各家配置</button>
+  </nav>
+
+  <main>
+    <section class="page on" id="page-skills">
+      <div class="split">
+        <div class="left">
+          <div class="search">
+            <input type="search" id="skillSearch" placeholder="搜名字或描述…" />
+          </div>
+          <ul class="list" id="skillList"></ul>
+        </div>
+        <div class="right" id="skillDetail">
+          <p class="empty">左边选一个技能。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-timeline">
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th class="nw" style="width:120px">时间</th>
+            <th style="width:210px">技能</th>
+            <th class="nw" style="width:110px">动作</th>
+            <th>来源 → 目标</th>
+          </tr></thead>
+          <tbody id="timelineBody"></tbody>
+        </table>
+        <p class="empty" id="timelineEmpty" hidden>还没有流水记录。</p>
+      </div>
+    </section>
+
+    <section class="page" id="page-backups">
+      <div class="tablewrap">
+        <div class="toolbar" style="margin:-12px -16px 12px;border-radius:0">
+          <span class="hint" id="backupHint"></span>
+          <span class="spacer"></span>
+          <button id="btnBackup2" class="primary">备份并归档…</button>
+        </div>
+        <table>
+          <thead><tr>
+            <th>备份包</th>
+            <th class="nw" style="width:80px">格式</th>
+            <th class="nw" style="width:90px">大小</th>
+            <th class="nw" style="width:150px">时间</th>
+            <th class="nw" style="width:210px">操作</th>
+          </tr></thead>
+          <tbody id="backupBody"></tbody>
+        </table>
+        <p class="empty" id="backupEmpty" hidden>还没有备份。</p>
+      </div>
+    </section>
+
+    <section class="page" id="page-trash">
+      <div class="tablewrap">
+        <div class="toolbar" style="margin:-12px -16px 12px;border-radius:0">
+          <span class="hint" id="trashHint"></span>
+          <span class="spacer"></span>
+          <input type="search" id="trashSearch" placeholder="过滤…" style="width:220px" />
+        </div>
+        <table>
+          <thead><tr>
+            <th class="nw" style="width:120px">时间</th>
+            <th style="width:250px">技能</th>
+            <th class="nw" style="width:150px">动作</th>
+            <th class="nw" style="width:110px">来自哪家</th>
+            <th class="nw" style="width:90px">大小</th>
+            <th class="nw" style="width:150px">操作</th>
+          </tr></thead>
+          <tbody id="trashBody"></tbody>
+        </table>
+        <p class="empty" id="trashEmpty" hidden>回收站是空的。</p>
+      </div>
+    </section>
+
+    <section class="page" id="page-agents">
+      <div class="tablewrap">
+        <div class="toolbar" style="margin:-12px -16px 12px;border-radius:0">
+          <span class="hint" id="agentHint"></span>
+          <span class="spacer"></span>
+          <button id="btnEnableIndex2">一键索引模式</button>
+          <button id="btnReindex">只重建门牌清单</button>
+        </div>
+        <table>
+          <thead><tr>
+            <th class="nw" style="width:150px">名字</th>
+            <th class="nw" style="width:130px">角色</th>
+            <th class="nw" style="width:110px">skills-index 门牌</th>
+            <th class="nw" style="width:100px">门牌外技能</th>
+            <th>目录</th>
+          </tr></thead>
+          <tbody id="agentBody"></tbody>
+        </table>
+        <p class="empty" style="margin-top:16px">
+          常驻上下文只放一份 <span class="tag">skills-index</span> 清单（≈43 token/家），
+          技能正文只留中心仓库一份，用到才读 —— 这就是索引模式省上下文的地方。<br />
+          <b>门牌外技能</b>应该是 0：点「一键索引模式」会把各家目录里多出来的技能<b>收编进中心仓库</b>、
+          正文副本清进回收站，然后在每家只留一个随中心仓库动态生成的门牌。
+          （<span class="mono">dsh</span> 是 <span class="mono">hold=copies</span> 的例外，它本来就保留完整副本。）
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="hidden">
+    <div class="sheet" id="sheet">
+      <header><h1 id="modalTitle"></h1></header>
+      <div class="body" id="modalBody"></div>
+      <footer id="modalFooter"></footer>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

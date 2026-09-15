@@ -1,0 +1,17 @@
+# 构建产物
+target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# 依赖
+node_modules/
+
+# 打出来的分发物（走 GitHub Releases，不进仓库）
+dist/
+*.dmg
+
+# 杂项
+.DS_Store
+*.swp
+*.swo
+*~

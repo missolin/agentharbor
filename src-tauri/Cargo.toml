@@ -1,0 +1,20 @@
+[package]
+name = "skill-hub"
+version = "1.1.0"
+description = "SkillDock · 技能坞 —— 多 agent 技能总管"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 4
+strip = true
