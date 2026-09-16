@@ -625,8 +625,8 @@ async function spreadCopies() {
   openSheet({
     title: "恢复到各家 —— 先看会写什么",
     html:
-      `<p class="meta">这是「一键索引模式」的反操作：把中心仓库里的技能<b>全部铺回</b>每个 agent 目录，` +
-      `并撤掉 skills-index 门牌。</p>` +
+      `<p class="meta">这是「一键索引模式」的反操作：按<b>各家恢复清单</b>（index/origin.json，可手改）` +
+      `把技能正文铺回每个 agent 目录，并撤掉 skills-index 门牌——每家只恢复自己清单里的，不是一刀切全量。</p>` +
       `<pre>${esc(preview)}</pre>` +
       `<p class="meta" style="color:var(--warn)">⚠️ 铺回去之后，改中心仓库的技能<b>不会再自动分发</b>到各家，` +
       `各家的常驻上下文也会从 ≈43 token 涨回几千。想回去点「一键索引模式」即可。</p>`,
