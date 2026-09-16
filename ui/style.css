@@ -202,3 +202,18 @@ td .tag + button, td button { margin-top: 4px; }
 
 .busy { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); animation: slide 1.1s ease-in-out infinite; z-index: 50; }
 @keyframes slide { 0% { transform: translateX(-60%);} 100% { transform: translateX(100%);} }
+
+/* 官方技能只读正文 */
+.official-body {
+  max-height: 62vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}

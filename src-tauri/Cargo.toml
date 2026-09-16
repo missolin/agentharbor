@@ -1,6 +1,6 @@
 [package]
 name = "agentharbor"
-version = "1.2.1"
+version = "1.2.2"
 description = "AgentHarbor · 智能体港 —— 多 agent 的技能与 MCP 总管"
 edition = "2021"
 rust-version = "1.77"

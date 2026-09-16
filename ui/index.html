@@ -27,6 +27,7 @@
 
   <nav id="tabs">
     <button data-page="skills" class="on">技能</button>
+    <button data-page="official">官方技能</button>
     <button data-page="mcp">MCP</button>
     <button data-page="timeline">流水</button>
     <button data-page="backups">备份</button>
@@ -45,6 +46,18 @@
         </div>
         <div class="right" id="skillDetail">
           <p class="empty">左边选一个技能。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-official">
+      <p class="hint" id="officialHint" style="margin:0 0 10px"></p>
+      <div class="split">
+        <div class="left">
+          <ul class="list" id="officialList"></ul>
+        </div>
+        <div class="right" id="officialDetail">
+          <p class="empty">左边选一个官方技能。</p>
         </div>
       </div>
     </section>

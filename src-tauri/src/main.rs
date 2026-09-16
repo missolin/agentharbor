@@ -759,6 +759,68 @@ fn restore_backup(name: String, skill: Option<String>) -> Result<String, String>
     run_engine(&args, None, None)
 }
 
+// ---------------------------------------------------------------- 官方技能（只读）
+
+#[derive(serde::Serialize)]
+struct OfficialDoc {
+    id: String,
+    title: String,
+    desc: String,
+    path: String,
+    body: String,
+    bytes: usize,
+    missing: bool,
+}
+
+/// 官方技能白名单：内容真源在中心仓库，App 只读展示，一律不可编辑。
+fn official_defs(hub: &Path) -> Vec<(&'static str, &'static str, &'static str, PathBuf)> {
+    vec![
+        (
+            "skills-index",
+            "skills-index · 技能总入口",
+            "路由索引：分类桶 + 英文触发词，agent 常驻的那份清单",
+            hub.join("index").join("skills-index").join("SKILL.md"),
+        ),
+        (
+            "mount-mcp",
+            "mount-mcp · 按需 MCP 挂载器",
+            "每家 agent 唯一的 MCP 入口：默认零子 server，mcp_list/mount/unmount/call",
+            hub.join("mcp").join("mount-mcp").join("SKILL.md"),
+        ),
+        (
+            "token-compress",
+            "token-compress · 压缩技能",
+            "中文描述 → 英文触发词/省 token 格式；先分诊不可压缩区再压",
+            hub.join("skills").join("token-compress").join("SKILL.md"),
+        ),
+    ]
+}
+
+#[tauri::command]
+fn official_list() -> Vec<OfficialDoc> {
+    let hub = hub();
+    official_defs(&hub)
+        .into_iter()
+        .map(|(id, title, desc, p)| {
+            let (body, bytes) = fs::read(&p)
+                .map(|b| {
+                    let n = b.len();
+                    (String::from_utf8_lossy(&b).to_string(), n)
+                })
+                .unwrap_or((String::new(), 0));
+            OfficialDoc {
+                id: id.into(),
+                title: title.into(),
+                desc: desc.into(),
+                path: p.display().to_string(),
+                body,
+                bytes,
+                missing: !p.is_file(),
+            }
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn save_skill(name: String, body: String) -> Result<String, String> {
     let p = skills_dir().join(&name).join("SKILL.md");
@@ -1236,6 +1298,7 @@ fn main() {
             mcp_apply,
             mcp_selfcheck,
             mcp_paths,
+            official_list,
         ])
         .run(tauri::generate_context!())
         .expect("AgentHarbor 启动失败");

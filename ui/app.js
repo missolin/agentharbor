@@ -169,6 +169,7 @@ async function refresh() {
     $("#hubPath").textContent = STATE.status.skills_dir;
     const page = $("nav button.on").dataset.page;
     if (page === "skills") await loadSkills();
+    if (page === "official") await loadOfficial();
     if (page === "mcp") await loadMcp();
     if (page === "timeline") await loadTimeline();
     if (page === "backups") await loadBackups();
@@ -644,6 +645,52 @@ async function spreadCopies() {
   });
 }
 
+// ---------------------------------------------------------------- 官方技能（只读）
+let OFFICIAL = null;
+async function loadOfficial() {
+  let docs;
+  try {
+    docs = await inv("official_list");
+  } catch (e) {
+    $("#officialHint").textContent = String(e);
+    return;
+  }
+  OFFICIAL = docs;
+  $("#officialHint").textContent =
+    "官方技能 · 内容真源在中心仓库（~/AgentSkillHub），App 只读展示；要改直接去改中心仓库（有 git 历史）。";
+  $("#officialList").innerHTML = docs
+    .map(
+      (d) => `
+    <li data-official="${esc(d.id)}">
+      <b>${esc(d.title)}</b>
+      <div class="mono dim" style="font-size:11px">${esc(d.desc)}</div>
+      ${d.missing ? '<span class="tag del">文件缺失</span>' : `<span class="tag add">只读 · ${d.bytes} B</span>`}
+    </li>`
+    )
+    .join("");
+  $("#officialList").querySelectorAll("li[data-official]").forEach((li) => {
+    li.onclick = () => showOfficial(li.dataset.official);
+  });
+  if (docs.length) showOfficial(docs[0].id);
+}
+
+function showOfficial(id) {
+  const d = (OFFICIAL || []).find((x) => x.id === id);
+  if (!d) return;
+  $("#officialList").querySelectorAll("li").forEach((li) =>
+    li.classList.toggle("on", li.dataset.official === id));
+  $("#officialDetail").innerHTML = `
+    <div class="toolbar" style="margin:-12px -16px 12px;border-radius:0">
+      <b>${esc(d.title)}</b><span class="spacer"></span>
+      <span class="tag add">官方 · 只读</span>
+      <button data-reveal>在访达显示</button>
+    </div>
+    <p class="hint">${esc(d.desc)}<br /><span class="mono">真源：${esc(d.path)}</span></p>
+    <pre class="official-body">${esc(d.body) || "(空)"}</pre>`;
+  $("#officialDetail").querySelector("[data-reveal]").onclick = () =>
+    inv("reveal", { path: d.path }).catch((e) => toast(String(e), "err"));
+}
+
 // ---------------------------------------------------------------- 事件
 document.querySelectorAll("nav button").forEach((b) => {
   b.onclick = async () => {
@@ -653,6 +700,7 @@ document.querySelectorAll("nav button").forEach((b) => {
     $("#page-" + b.dataset.page).classList.add("on");
     const p = b.dataset.page;
     if (p === "skills") await loadSkills();
+    if (p === "official") await loadOfficial();
     if (p === "mcp") await loadMcp();
     if (p === "timeline") await loadTimeline();
     if (p === "backups") await loadBackups();
