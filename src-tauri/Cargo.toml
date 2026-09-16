@@ -1,6 +1,6 @@
 [package]
 name = "agentharbor"
-version = "1.2.2"
+version = "1.2.3"
 description = "AgentHarbor · 智能体港 —— 多 agent 的技能与 MCP 总管"
 edition = "2021"
 rust-version = "1.77"
@@ -11,7 +11,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 opt-level = "s"

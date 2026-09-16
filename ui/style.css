@@ -217,3 +217,30 @@ td .tag + button, td button { margin-top: 4px; }
   word-break: break-word;
   margin: 0;
 }
+
+/* 技能列表星标 */
+ul.list li .star {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--fg3);
+  opacity: 0.35;
+  cursor: pointer;
+  user-select: none;
+}
+ul.list li .star:hover { opacity: 0.8; }
+ul.list li .star.on { color: #e8a013; opacity: 1; }
+
+/* 弹窗里的下拉框跟输入框同款 */
+.sheet select {
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--fg);
+}
+.sheet select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }

@@ -55,6 +55,37 @@ fn read_json(p: &Path) -> Value {
 
 fn cfg() -> Value { read_json(&hub().join("config.json")) }
 
+/// App 自己的小账本（星标技能）。放 .state/ 里，不碰技能内容，引擎也不看它。
+fn favorites_path() -> PathBuf { hub().join(".state").join("app-favorites.json") }
+
+fn write_json(p: &Path, v: &Value) -> Result<(), String> {
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("建不了目录 {}: {e}", dir.display()))?;
+    }
+    let s = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
+    fs::write(p, s + "\n").map_err(|e| format!("写不进 {}: {e}", p.display()))
+}
+
+fn json_strings(v: &Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 改 config.json 前先留一份单步备份（config.json.bak），写坏了一步就能拿回来。
+fn write_config(c: &Value) -> Result<(), String> {
+    let p = hub().join("config.json");
+    if p.is_file() {
+        let bak = hub().join("config.json.bak");
+        fs::copy(&p, &bak).map_err(|e| format!("备份 config.json 失败: {e}"))?;
+    }
+    write_json(&p, c)
+}
+
 /// 所有 agent（peers + sinks）的 id -> 技能目录
 fn agents() -> BTreeMap<String, PathBuf> {
     let c = cfg();
@@ -288,6 +319,8 @@ struct DictEntry {
     /// 除了门牌之外，目录里还剩几个技能
     /// （索引模式下正常应该是 0；hold=copies 的 dsh 本来就该 >0）
     extras: usize,
+    /// 属于哪一节：peers / sinks / inbox
+    grp: String,
 }
 
 // ---------------------------------------------------------------- 命令：读
@@ -377,11 +410,35 @@ fn dictionary() -> Vec<DictEntry> {
                     exists,
                     has_index,
                     extras,
+                    grp: grp.to_string(),
                 });
             }
         }
     }
     out
+}
+
+// ---------------------------------------------------------------- 命令：星标
+
+#[tauri::command]
+fn favorites() -> Vec<String> {
+    json_strings(&read_json(&favorites_path()))
+}
+
+#[tauri::command]
+fn set_favorite(name: String, on: bool) -> Result<(), String> {
+    if name.contains('/') || name.contains("..") {
+        return Err("技能名不合法".into());
+    }
+    if on && !skills_dir().join(&name).join("SKILL.md").is_file() {
+        return Err(format!("没有这个技能: {name}"));
+    }
+    let mut list = favorites();
+    list.retain(|x| x != &name);
+    if on {
+        list.push(name);
+    }
+    write_json(&favorites_path(), &Value::Array(list.into_iter().map(Value::String).collect()))
 }
 
 #[tauri::command]
@@ -950,6 +1007,118 @@ fn reveal_skill(name: String) -> Result<String, String> {
     open_path(&p, true)
 }
 
+// ---------------------------------------------------------------- 命令：各家配置的增改
+//
+// 界面上改路径 / 加新接入方 = 改中心仓库的 config.json。改之前自动留
+// config.json.bak；键顺序用 serde_json 的 preserve_order 保住，diff 干净。
+
+#[tauri::command]
+fn reveal_agent(id: String) -> Result<String, String> {
+    let p = agents()
+        .get(&id)
+        .ok_or_else(|| format!("配置里没有叫 {id} 的接入方"))?
+        .clone();
+    open_path(&p, true)
+}
+
+#[tauri::command]
+fn set_agent_path(id: String, path: String) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("路径不能为空".into());
+    }
+    let mut c = cfg();
+    if c.is_null() {
+        return Err("读不到 config.json".into());
+    }
+    let mut found = 0;
+    for grp in ["peers", "sinks", "inbox"] {
+        if let Some(arr) = c.get_mut(grp).and_then(|v| v.as_array_mut()) {
+            for it in arr.iter_mut() {
+                if it.get("id").and_then(|v| v.as_str()) == Some(id.as_str()) {
+                    it["path"] = Value::String(path.to_string());
+                    found += 1;
+                }
+            }
+        }
+    }
+    if found == 0 {
+        return Err(format!("配置里没有叫 {id} 的接入方"));
+    }
+    write_config(&c)?;
+    Ok(format!(
+        "{id} 的路径已改成 {path}（原配置在 config.json.bak）。点「同步到各家」后生效。"
+    ))
+}
+
+#[tauri::command]
+fn add_agent(id: String, path: String, hold: String, group: String) -> Result<String, String> {
+    let id = id.trim().to_string();
+    let path = path.trim().to_string();
+    if id.is_empty() || path.is_empty() {
+        return Err("名字和路径都不能为空".into());
+    }
+    if !id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+        return Err("名字只能用英文字母 / 数字 / - / _".into());
+    }
+    if !matches!(hold.as_str(), "index" | "copies") {
+        return Err("角色只能是 index（只挂门牌）或 copies（保留完整副本）".into());
+    }
+    if !matches!(group.as_str(), "peers" | "sinks" | "inbox") {
+        return Err("分组只能是 peers / sinks / inbox".into());
+    }
+    let mut c = cfg();
+    if c.is_null() {
+        return Err("读不到 config.json".into());
+    }
+    // 名字不能和现有任何一家重复
+    for grp in ["peers", "sinks", "inbox"] {
+        if let Some(arr) = c.get(grp).and_then(|v| v.as_array()) {
+            for it in arr {
+                if it.get("id").and_then(|v| v.as_str()) == Some(id.as_str()) {
+                    return Err(format!("已经有一家叫 {id} 了（在 {grp} 里）"));
+                }
+            }
+        }
+    }
+    let mut entry = serde_json::Map::new();
+    entry.insert("id".into(), Value::String(id.clone()));
+    entry.insert("path".into(), Value::String(path.clone()));
+    if group == "peers" {
+        entry.insert("hold".into(), Value::String(hold.clone()));
+        entry.insert("mode".into(), Value::String("full".into()));
+        entry.insert("priority".into(), Value::from(50));
+    } else if group == "sinks" {
+        entry.insert("hold".into(), Value::String(hold.clone()));
+        entry.insert("priority".into(), Value::from(0));
+    } else {
+        entry.insert("priority".into(), Value::from(0));
+    }
+    if let Some(arr) = c.get_mut(&group).and_then(|v| v.as_array_mut()) {
+        arr.push(Value::Object(entry));
+    } else {
+        return Err(format!("config.json 里没有 {group} 这一节"));
+    }
+    // hold=index 的接入方要同时登记进 index_members，跟现有 6 家保持一致
+    if hold == "index" && group != "inbox" {
+        let members = c
+            .get_mut("index_members")
+            .and_then(|v| v.as_array_mut());
+        if let Some(members) = members {
+            let already = members
+                .iter()
+                .any(|m| m.as_str() == Some(id.as_str()));
+            if !already {
+                members.push(Value::String(id.clone()));
+            }
+        }
+    }
+    write_config(&c)?;
+    Ok(format!(
+        "已添加 {id}（{group}，hold={hold}）→ {path}。点「同步到各家」后生效。"
+    ))
+}
+
 #[tauri::command]
 fn open_file(path: String) -> Result<String, String> {
     open_path(&PathBuf::from(&path), false)
@@ -1299,6 +1468,11 @@ fn main() {
             mcp_selfcheck,
             mcp_paths,
             official_list,
+            favorites,
+            set_favorite,
+            reveal_agent,
+            set_agent_path,
+            add_agent,
         ])
         .run(tauri::generate_context!())
         .expect("AgentHarbor 启动失败");

@@ -145,7 +145,7 @@ function promptModal(title, label, placeholder, onOk) {
 }
 
 // ---------------------------------------------------------------- 状态
-let STATE = { status: null, skills: [], timeline: [], backups: [], trash: [], agents: [], sel: null };
+let STATE = { status: null, skills: [], timeline: [], backups: [], trash: [], agents: [], sel: null, favorites: new Set() };
 
 function chips(s) {
   const out = [];
@@ -183,6 +183,11 @@ async function refresh() {
 // ---------------------------------------------------------------- 页 1 技能
 async function loadSkills() {
   STATE.skills = await inv("skills");
+  try {
+    STATE.favorites = new Set(await inv("favorites"));
+  } catch (e) {
+    STATE.favorites = new Set();
+  }
   renderSkillList();
   if (STATE.sel && STATE.skills.some((s) => s.name === STATE.sel)) showSkill(STATE.sel);
   else {
@@ -196,18 +201,44 @@ function renderSkillList() {
   const rows = STATE.skills.filter(
     (s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q)
   );
-  $("#skillList").innerHTML = rows
-    .map(
-      (s) => `<li data-name="${esc(s.name)}" class="${s.name === STATE.sel ? "on" : ""}">
+  // 星标的排最前，其余保持原名次
+  const ordered = [
+    ...rows.filter((s) => STATE.favorites.has(s.name)),
+    ...rows.filter((s) => !STATE.favorites.has(s.name)),
+  ];
+  $("#skillList").innerHTML = ordered
+    .map((s) => {
+      const fav = STATE.favorites.has(s.name);
+      return `<li data-name="${esc(s.name)}" class="${s.name === STATE.sel ? "on" : ""}">
+        <span class="star${fav ? " on" : ""}" data-star="${esc(s.name)}" title="${fav ? "取消星标" : "星标（排最前）"}">★</span>
         ${s.copies.length ? '<span class="dot" title="' + esc(s.copies.join(", ")) + '还留着完整副本"></span>' : ""}
         <span class="nm">${esc(s.name)}</span>
         <span class="meta" style="margin:0">${fmtSize(s.size)}</span>
-      </li>`
-    )
+      </li>`;
+    })
     .join("");
   [...$("#skillList").children].forEach((li) => {
     li.onclick = () => showSkill(li.dataset.name);
+    const star = li.querySelector(".star");
+    if (star)
+      star.onclick = (ev) => {
+        ev.stopPropagation();
+        toggleStar(star.dataset.star);
+      };
   });
+}
+
+async function toggleStar(name) {
+  const on = !STATE.favorites.has(name);
+  try {
+    await inv("set_favorite", { name, on });
+    if (on) STATE.favorites.add(name);
+    else STATE.favorites.delete(name);
+    renderSkillList();
+    if (STATE.sel === name) showSkill(name);
+  } catch (e) {
+    toast(String(e), "err");
+  }
 }
 
 async function showSkill(name) {
@@ -234,11 +265,13 @@ async function showSkill(name) {
     <div class="actions">
       <button id="skEdit" class="primary">编辑</button>
       <button id="skNew">新建技能</button>
+      <button id="skStar">${STATE.favorites.has(name) ? "★ 取消星标" : "☆ 星标"}</button>
       <button id="skFinder">在 Finder 里打开</button>
     </div>
     <pre>${esc(body)}</pre>`;
   $("#skEdit").onclick = () => editSkill(name, body);
   $("#skNew").onclick = newSkill;
+  $("#skStar").onclick = () => toggleStar(name);
   // 只传技能名，路径由后端算 —— 前端不碰路径拼接
   $("#skFinder").onclick = () =>
     inv("reveal_skill", { name }).catch((e) => toast(String(e), "err"));
@@ -444,9 +477,103 @@ async function loadAgents() {
       <td class="nw">${badge}</td>
       <td class="nw">${extra}</td>
       <td class="mono ell" title="${esc(a.path)}">${esc(a.path)}</td>
+      <td class="nw"><span class="act">
+        <button data-agent-open="${esc(a.id)}">打开</button>
+        <button data-agent-path="${esc(a.id)}">路径…</button>
+      </span></td>
     </tr>`;
     })
     .join("");
+  $("#agentBody").querySelectorAll("[data-agent-open]").forEach((btn) => {
+    btn.onclick = () =>
+      inv("reveal_agent", { id: btn.dataset.agentOpen }).catch((e) => toast(String(e), "err"));
+  });
+  $("#agentBody").querySelectorAll("[data-agent-path]").forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.agentPath;
+      const a = STATE.agents.find((x) => x.id === id);
+      promptModal(
+        "改 " + id + " 的路径",
+        "技能目录的完整路径（支持 ~ 开头）。改完点「同步到各家」生效。",
+        a ? a.path : "",
+        async (v) => {
+          if (!v || v === (a ? a.path : "")) return;
+          try {
+            toast(await inv("set_agent_path", { id, path: v }), "ok");
+            await refresh();
+          } catch (e) {
+            toast(String(e), "err");
+          }
+        }
+      );
+    };
+  });
+}
+
+/** 新增一个接入方配置：写进中心仓库 config.json，等下次同步生效。 */
+function addAgentConfig() {
+  openSheet({
+    title: "添加接入方配置",
+    html: `
+      <p class="meta">写进中心仓库的 <span class="mono">config.json</span>（自动留 config.json.bak）。
+      加完点「同步到各家」才会真正动那个目录。</p>
+      <p class="meta" style="margin-top:12px"><b>名字</b>（英文字母 / 数字 / - / _，不能重复）</p>
+      <input type="text" id="agId" placeholder="my-agent" />
+      <p class="meta" style="margin-top:12px"><b>技能目录</b>（支持 ~ 开头）</p>
+      <div class="row">
+        <input type="text" id="agPath" class="mono" placeholder="~/.my-agent/skills" spellcheck="false" />
+        <button id="agBrowse">选择…</button>
+      </div>
+      <p class="meta" style="margin-top:12px"><b>分组</b></p>
+      <select id="agGrp">
+        <option value="peers">peers · 双向自动同步</option>
+        <option value="sinks">sinks · 只从中心仓库往外推</option>
+        <option value="inbox">inbox · 只读来源，只在报告里提示</option>
+      </select>
+      <p class="meta" style="margin-top:12px"><b>保留方式</b></p>
+      <select id="agHold">
+        <option value="index">index · 只挂 skills-index 门牌（省上下文）</option>
+        <option value="copies">copies · 保留完整技能副本</option>
+      </select>`,
+    focus: "#agId",
+    buttons: [
+      { label: "取消", onClick: closeSheet },
+      { label: "添加", kind: "primary", onClick: doAddAgent },
+    ],
+  });
+  setTimeout(() => {
+    const browse = $("#agBrowse");
+    if (browse)
+      browse.onclick = async () => {
+        try {
+          const p = await inv("pick_dir", { prompt: "选这个 agent 的技能目录" });
+          $("#agPath").value = p;
+        } catch (e) {
+          if (String(e) !== "取消") toast(String(e), "err");
+        }
+      };
+    $("#agId").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doAddAgent();
+    });
+  }, 40);
+}
+
+async function doAddAgent() {
+  const id = ($("#agId") || {}).value || "";
+  const path = ($("#agPath") || {}).value || "";
+  const group = ($("#agGrp") || {}).value || "peers";
+  const hold = ($("#agHold") || {}).value || "index";
+  if (!id.trim() || !path.trim()) {
+    toast("名字和路径都要填", "err");
+    return;
+  }
+  try {
+    toast(await inv("add_agent", { id, path, hold, group }), "ok");
+    closeSheet();
+    await refresh();
+  } catch (e) {
+    toast(String(e), "err");
+  }
 }
 
 // ---------------------------------------------------------------- 页 6 MCP
@@ -719,6 +846,7 @@ $("#btnBackup2").onclick = askBackup;
 $("#btnEnableIndex").onclick = enableIndex;
 $("#btnEnableIndex2").onclick = enableIndex;
 $("#btnReindex").onclick = () => run("reindex", {}, "重建 skills-index 门牌清单");
+$("#btnAgentAdd").onclick = addAgentConfig;
 $("#btnSpread").onclick = spreadCopies;
 $("#btnSpread2").onclick = spreadCopies;
 $("#btnMcpScan").onclick = async () => {
